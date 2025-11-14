@@ -1,0 +1,50 @@
+# =============== #
+# Java (Spring)   #
+# =============== #
+# Ignora a pasta de build principal do Java
+service-busca-java/target/
+
+# Ignora o JAR do Maven Wrapper
+service-busca-java/.mvn/wrapper/maven-wrapper.jar
+
+# Ignora logs
+*.log
+
+
+# =============== #
+# Python (IA)     #
+# =============== #
+
+# Ignora o Ambiente Virtual (O MAIS IMPORTANTE)
+service-ia-python/.venv/
+
+# Ignora os arquivos compilados do Python
+service-ia-python/__pycache__/
+*.pyc
+
+# Ignora as imagens geradas (Opcional, mas recomendado)
+# Se você quiser salvar as imagens geradas, apague a linha abaixo
+service-ia-python/clustered_images/
+
+
+# =============== #
+# IDE / Sistema   #
+# =============== #
+
+# VS Code
+.vscode/
+
+# IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Eclipse
+.classpath
+.project
+.settings
+
+# Mac/Windows
+.DS_Store
+Thumbs.db
