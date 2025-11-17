@@ -5,7 +5,7 @@ from tensorflow.keras.applications.vgg16 import VGG16, preprocess_input
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import GlobalAveragePooling2D
 from sklearn.cluster import KMeans
-from sklearn.preprocessing import normalize # <--- Importação Essencial
+from sklearn.preprocessing import normalize
 
 # --- Configurações ---
 IMAGE_DIR = 'images_to_process'
