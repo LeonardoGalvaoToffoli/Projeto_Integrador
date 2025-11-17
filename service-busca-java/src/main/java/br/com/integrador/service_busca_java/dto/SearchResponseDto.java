@@ -4,7 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 
 @Data
-@AllArgsConstructor // Cria um construtor
+@AllArgsConstructor
 public class SearchResponseDto {
     private String clusterEncontrado;
 }

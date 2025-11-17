@@ -17,7 +17,7 @@ public class SearchController {
     private SearchService searchService;
 
     /**
-     * ENDPOINT 1: /build
+     * Endpoint para ingestão e indexação dos dados de clusterização.
      */
     @PostMapping("/build")
     public ResponseEntity<String> build(@RequestBody Map<String, double[]> centroids) {
@@ -25,19 +25,17 @@ public class SearchController {
             searchService.buildIndex(centroids);
             return ResponseEntity.ok("Índice construído com sucesso.");
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Erro ao construir índice: " + e.getMessage());
+            return ResponseEntity.internalServerError().body("Erro na construção do índice: " + e.getMessage());
         }
     }
 
     /**
-     * ENDPOINT 2: /search
+     * Endpoint para busca de similaridade.
      */
     @PostMapping("/search")
     public ResponseEntity<SearchResponseDto> search(@RequestBody SearchRequestDto request) {
         try {
-            // Usa o DTO de Request
             String closestCluster = searchService.findClosestCluster(request.getImageVector());
-            // Retorna o DTO de Response
             return ResponseEntity.ok(new SearchResponseDto(closestCluster));
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body(null);
