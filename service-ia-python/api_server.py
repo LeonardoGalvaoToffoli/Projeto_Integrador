@@ -4,42 +4,55 @@ import threading
 from flask import Flask, jsonify, request
 import requests
 from io import BytesIO 
+from functools import wraps
 from image_processor import run_clustering, get_features_for_single_image
 
 app = Flask(__name__)
 
-# Cache em memória para controle de estado dos jobs.
+# Cache em memória
 job_statuses = {} 
 
-# Endereço do serviço de Estrutura de Dados (Java)
+# Configurações
 JAVA_API_URL = "http://localhost:8080"
+API_KEY = "SCI-BDI-SECRET-KEY-2025"  # <--- Chave definida
+
+# --- 1. Decorator de Segurança ---
+# Essa função verifica se a chave chegou no request
+def require_api_key(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if request.headers.get('X-API-KEY') == API_KEY:
+            return f(*args, **kwargs)
+        else:
+            return jsonify({"error": "Acesso Negado: API Key inválida"}), 401
+    return decorated_function
+
+# --- Rotas ---
 
 @app.route('/clusterizar', methods=['POST'])
+@require_api_key
 def start_clustering_job():
-    """
-    Inicia o processo de clusterização de forma assíncrona.
-    Utiliza threads para evitar bloqueio da API durante o processamento pesado de IA.
-    """
     job_id = str(uuid.uuid4())
     job_statuses[job_id] = {"status": "EM PROGRESSO", "resultado": None}
     
     def worker(job_id):
         print(f"Job {job_id} - Iniciado.")
         try:
-            # Execução do pipeline de IA
             results_json, centroids_map = run_clustering() 
             
-            # Sincronização com o Microsserviço Java:
-            # Envia os centróides calculados para indexação na tabela hash.
+            # Sincronização com Java
             if centroids_map:
                 try:
                     print(f"Job {job_id} - Enviando dados para indexação Java...")
-                    response = requests.post(f"{JAVA_API_URL}/build", json=centroids_map, timeout=10)
+                    
+                    # --- 2. ENVIANDO A CHAVE PARA O JAVA ---
+                    headers_java = {"X-API-KEY": API_KEY}
+                    response = requests.post(f"{JAVA_API_URL}/build", json=centroids_map, headers=headers_java, timeout=10)
                     
                     if response.status_code == 200:
-                        print(f"Job {job_id} - Indexação concluída com sucesso.")
+                        print(f"Job {job_id} - Indexação concluída.")
                     else:
-                        print(f"Job {job_id} - Falha na indexação. Código: {response.status_code}")
+                        print(f"Job {job_id} - Falha Java: {response.status_code}")
                 
                 except requests.exceptions.ConnectionError:
                     print(f"Job {job_id} - Erro: Serviço Java inacessível.")
@@ -58,22 +71,18 @@ def start_clustering_job():
     thread = threading.Thread(target=worker, args=(job_id,))
     thread.start()
 
-    return jsonify({
-        "job_id": job_id, 
-        "status": "Processamento iniciado.",
-        "monitoramento": f"/status/{job_id}"
-    }), 202
+    return jsonify({"job_id": job_id, "status": "Processamento iniciado."}), 202
 
 @app.route('/status/<job_id>', methods=['GET'])
+@require_api_key
 def get_job_status(job_id):
-    """Monitora o estado atual de um job de processamento."""
     if job_id not in job_statuses:
         return jsonify({"message": "Job não encontrado"}), 404
     return jsonify({"status": job_statuses[job_id]["status"]}), 200
 
 @app.route('/pastas/<job_id>', methods=['GET'])
+@require_api_key
 def get_folders_content(job_id):
-    """Retorna os resultados organizados após a conclusão do job."""
     if job_id not in job_statuses:
         return jsonify({"message": "Job não encontrado"}), 404
     job = job_statuses[job_id]
@@ -82,14 +91,8 @@ def get_folders_content(job_id):
     return jsonify(job["resultado"]), 200
 
 @app.route('/search', methods=['POST'])
+@require_api_key
 def search_similar_image():
-    """
-    Endpoint de busca por similaridade.
-    Fluxo:
-    1. Recebe imagem -> Extrai vetor (Python).
-    2. Envia vetor -> Busca vizinho mais próximo (Java).
-    3. Retorna cluster identificado.
-    """
     if 'image' not in request.files:
         return jsonify({"error": "Arquivo ausente"}), 400
     
@@ -100,18 +103,19 @@ def search_similar_image():
         image_vector = get_features_for_single_image(image_in_memory)
         
         if image_vector is None:
-             return jsonify({"error": "Falha no processamento da imagem"}), 500
+             return jsonify({"error": "Falha no processamento"}), 500
 
-        java_payload = {
-            "imageVector": image_vector
-        }
+        java_payload = {"imageVector": image_vector}
 
         try:
-            response = requests.post(f"{JAVA_API_URL}/search", json=java_payload, timeout=10)
+            # --- 3. ENVIANDO A CHAVE PARA O JAVA ---
+            headers_java = {"X-API-KEY": API_KEY}
+            response = requests.post(f"{JAVA_API_URL}/search", json=java_payload, headers=headers_java, timeout=10)
+            
             if response.status_code == 200:
                 return jsonify(response.json()), 200
             else:
-                return jsonify({"error": "Erro no serviço de busca", "details": response.text}), 500
+                return jsonify({"error": "Erro no serviço de busca Java"}), 500
         except requests.exceptions.ConnectionError:
             return jsonify({"error": "Serviço de busca indisponível"}), 503
     except Exception as e:

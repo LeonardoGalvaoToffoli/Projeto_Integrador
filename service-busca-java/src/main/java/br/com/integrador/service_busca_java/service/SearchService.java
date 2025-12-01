@@ -18,10 +18,15 @@ public class SearchService {
      * Constrói o índice em memória a partir dos dados fornecidos pelo processamento Python.
      */
     public void buildIndex(Map<String, double[]> centroids) {
-        clusterIndex.clear();
-        clusterIndex.putAll(centroids);
-        System.out.println("Índice atualizado. Clusters indexados: " + clusterIndex.size());
-    }
+    clusterIndex.clear();
+    clusterIndex.putAll(centroids);
+    
+    System.out.println("=== CONTEÚDO DA TABELA HASH ===");
+    clusterIndex.forEach((nome, vetor) -> {
+        System.out.println("Chave (Hash): " + nome + " -> Valor (Vetor): [ " + vetor[0] + ", ... ]");
+    });
+    System.out.println("===============================");
+}
 
     /**
      * Executa a busca pelo cluster mais próximo (Nearest Neighbor Search).

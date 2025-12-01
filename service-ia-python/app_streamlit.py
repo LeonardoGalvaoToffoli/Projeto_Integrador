@@ -5,6 +5,8 @@ import pandas as pd
 import json
 
 FLASK_BASE_URL = "http://localhost:5000"
+# --- CONSTANTE DE SEGURANÇA ---
+HEADERS = {"X-API-KEY": "SCI-BDI-SECRET-KEY-2025"}
 
 st.set_page_config(
     page_title="SCI-BDI: Clusterização de Imagens",
@@ -14,7 +16,8 @@ st.set_page_config(
 st.title("🧠 Sistema de Clusterização e Busca Inteligente")
 st.markdown("Interface de controle para organização automática e busca visual de imagens.")
 
-# --- Gerenciamento de Estado ---
+# --- 1. GERENCIAMENTO DE ESTADO (Onde ocorreu o erro) ---
+# Este bloco é essencial para inicializar as variáveis na memória do navegador
 if 'job_id' not in st.session_state:
     st.session_state.job_id = None
 if 'job_status' not in st.session_state:
@@ -22,14 +25,15 @@ if 'job_status' not in st.session_state:
 if 'clustering_result' not in st.session_state:
     st.session_state.clustering_result = None
 
-# --- Painel de Controle ---
+# --- 2. Painel de Controle ---
 st.header("1. Pipeline de Processamento")
 
 def start_job():
     st.session_state.job_status = "Iniciando..."
     st.session_state.clustering_result = None
     try:
-        response = requests.post(f"{FLASK_BASE_URL}/clusterizar")
+        # Envia a chave de segurança no header
+        response = requests.post(f"{FLASK_BASE_URL}/clusterizar", headers=HEADERS)
         if response.status_code == 202:
             data = response.json()
             st.session_state.job_id = data['job_id']
@@ -47,7 +51,7 @@ def start_job():
 if st.button("▶️ Executar Clusterização"):
     start_job()
     
-# --- Monitoramento ---
+# --- 3. Monitoramento ---
 st.header("2. Monitoramento")
 
 if st.session_state.job_id:
@@ -55,7 +59,8 @@ if st.session_state.job_id:
     
     def check_status():
         try:
-            response = requests.get(f"{FLASK_BASE_URL}/status/{st.session_state.job_id}")
+            # Envia a chave de segurança no header
+            response = requests.get(f"{FLASK_BASE_URL}/status/{st.session_state.job_id}", headers=HEADERS)
             if response.status_code == 200:
                 data = response.json()
                 st.session_state.job_status = data['status']
@@ -76,12 +81,13 @@ if st.session_state.job_id:
     elif st.session_state.job_status == "CONCLUÍDO":
         st.success("Processamento concluído.")
     
-# --- Resultados ---
+# --- 4. Resultados ---
 st.header("3. Resultados")
 
 if st.session_state.job_status == "CONCLUÍDO" and st.session_state.clustering_result is None:
     try:
-        response = requests.get(f"{FLASK_BASE_URL}/pastas/{st.session_state.job_id}")
+        # Envia a chave de segurança no header
+        response = requests.get(f"{FLASK_BASE_URL}/pastas/{st.session_state.job_id}", headers=HEADERS)
         if response.status_code == 200:
             st.session_state.clustering_result = response.json()
         else:
@@ -106,7 +112,7 @@ if st.session_state.clustering_result:
     with st.expander("Dados Brutos (JSON)"):
         st.code(json.dumps(result, indent=2))
 
-# --- Busca Inteligente ---
+# --- 5. Busca Inteligente ---
 st.markdown("---")
 st.header("4. 🔎 Busca Visual")
 st.markdown("Upload de imagem para classificação automática via índice Java.")
@@ -118,17 +124,19 @@ if uploaded_file is not None:
     
     files_to_send = {'image': (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
     
-    with st.spinner("Consultando serviço de busca..."):
-        try:
-            response = requests.post(f"{FLASK_BASE_URL}/search", files=files_to_send)
-            
-            if response.status_code == 200:
-                result = response.json()
-                st.success(f"**Classificação:** `{result['clusterEncontrado']}`")
-            else:
-                st.error(f"Erro: {response.json().get('error', 'Desconhecido')}")
+    if st.button("🔍 Buscar Similaridade"):
+        with st.spinner("Consultando serviço de busca..."):
+            try:
+                # Envia a chave de segurança no header
+                response = requests.post(f"{FLASK_BASE_URL}/search", files=files_to_send, headers=HEADERS)
                 
-        except requests.exceptions.ConnectionError:
-            st.error("Serviço indisponível.")
-        except Exception as e:
-            st.error(f"Exceção: {e}")
+                if response.status_code == 200:
+                    result = response.json()
+                    st.success(f"**Classificação:** `{result['clusterEncontrado']}`")
+                else:
+                    st.error(f"Erro: {response.json().get('error', 'Desconhecido')}")
+                    
+            except requests.exceptions.ConnectionError:
+                st.error("Serviço indisponível.")
+            except Exception as e:
+                st.error(f"Exceção: {e}")
