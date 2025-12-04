@@ -1,10 +1,11 @@
+import os
 import streamlit as st
 import requests
 import time
 import pandas as pd
 import json
 
-FLASK_BASE_URL = "http://localhost:5000"
+FLASK_BASE_URL = os.getenv("FLASK_BASE_URL", "http://localhost:5000")
 # --- CONSTANTE DE SEGURANÇA ---
 HEADERS = {"X-API-KEY": "SCI-BDI-SECRET-KEY-2025"}
 

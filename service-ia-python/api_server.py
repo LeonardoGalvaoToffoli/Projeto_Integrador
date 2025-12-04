@@ -13,8 +13,8 @@ app = Flask(__name__)
 job_statuses = {} 
 
 # Configurações
-JAVA_API_URL = "http://localhost:8080"
-API_KEY = "SCI-BDI-SECRET-KEY-2025"  # <--- Chave definida
+JAVA_API_URL = os.getenv("JAVA_API_URL", "http://localhost:8080")
+API_KEY = "SCI-BDI-SECRET-KEY-2025"
 
 # --- 1. Decorator de Segurança ---
 # Essa função verifica se a chave chegou no request

@@ -1,0 +1,78 @@
+name: CI/CD Pipeline - SCI-BDI
+
+# Gatilhos: Roda quando fizer push ou pull request na branch principal
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  # --- JOB 1: Testar o Backend Java ---
+  java-test:
+    name: ☕ Java Spring Boot (Build & Test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./service-busca-java # Define a pasta do Java
+    
+    steps:
+    - name: Checkout do Código
+      uses: actions/checkout@v4
+
+    - name: Configurar JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: 'maven'
+
+    - name: Compilar e Rodar Testes Unitários
+      # O comando 'test' do Maven roda os testes definidos em src/test/java
+      run: mvn clean test
+
+  # --- JOB 2: Testar o Backend Python ---
+  python-test:
+    name: 🐍 Python AI (Syntax & Install)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./service-ia-python # Define a pasta do Python
+    
+    steps:
+    - name: Checkout do Código
+      uses: actions/checkout@v4
+
+    - name: Configurar Python 3.10
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+
+    - name: Instalar Dependências de Sistema
+      # Necessário para as bibliotecas de imagem (OpenCV/Tensorflow)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libgl1 libglib2.0-0
+
+    - name: Instalar Dependências do Projeto
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Verificação de Sintaxe
+      run: python -m compileall .
+
+  # --- JOB 3: Testar o Build do Docker ---
+  docker-build:
+    name: 🐳 Docker Compose Build
+    runs-on: ubuntu-latest
+    needs: [java-test, python-test] # Só roda se os testes anteriores passarem
+    
+    steps:
+    - name: Checkout do Código
+      uses: actions/checkout@v4
+    
+    - name: Construir Imagens Docker
+      # Tenta construir as imagens para garantir que o Dockerfile está válido
+      run: docker-compose build

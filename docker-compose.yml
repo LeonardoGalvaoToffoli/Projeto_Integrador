@@ -1,0 +1,28 @@
+services:
+  # Serviço Java
+  service-busca-java:
+    build: ./service-busca-java
+    container_name: sci-bdi-java
+    ports:
+      - "8080:8080"
+    networks:
+      - sci-bdi-network
+
+  # Serviço Python
+  service-ia-python:
+    build: ./service-ia-python
+    container_name: sci-bdi-python
+    ports:
+      - "5000:5000" # API Flask
+      - "8501:8501" # Frontend Streamlit
+    depends_on:
+      - service-busca-java
+    environment:
+      - JAVA_API_URL=http://service-busca-java:8080
+      - FLASK_BASE_URL=http://localhost:5000
+    networks:
+      - sci-bdi-network
+
+networks:
+  sci-bdi-network:
+    driver: bridge
