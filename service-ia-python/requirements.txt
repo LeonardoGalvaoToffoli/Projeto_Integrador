@@ -6,3 +6,4 @@ numpy
 pillow
 tensorflow
 scikit-learn
+werkzeug
