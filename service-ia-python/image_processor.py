@@ -1,120 +1,162 @@
 import os
 import numpy as np
 from PIL import Image
-from tensorflow.keras.applications.vgg16 import VGG16, preprocess_input
+from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import GlobalAveragePooling2D
+from tensorflow.keras.preprocessing.image import img_to_array
 from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import normalize
 
-# --- Configurações ---
-IMAGE_DIR = 'images_to_process'
-OUTPUT_DIR = 'clustered_images'
-NUM_CLUSTERS = 4
 TARGET_SIZE = (224, 224)
 
-# Inicialização de diretórios
-if not os.path.exists(OUTPUT_DIR):
-    os.makedirs(OUTPUT_DIR)
-for i in range(NUM_CLUSTERS):
-    cluster_dir = os.path.join(OUTPUT_DIR, f'cluster_{i}')
-    if not os.path.exists(cluster_dir):
-        os.makedirs(cluster_dir)
+# --- CARREGAMENTO DA IA ---
+# ResNet50 completa para extração profunda de características (shapes, textures, objects)
+base_model = ResNet50(weights='imagenet', include_top=True)
+# Camada de pooling (2048 dimensões) - Onde "mora" a semântica da imagem
+feature_extractor = Model(inputs=base_model.input, outputs=base_model.get_layer('avg_pool').output)
 
-# --- Carregamento do Modelo (VGG16 com Pooling) ---
+print("IA Carregada: ResNet50 (Fine-Tuned for Precision)")
 
-base_model = VGG16(weights='imagenet', include_top=False)
-
-# Global Average Pooling reduz o vetor para 512 dimensões e foca no conteúdo semântico
-x = base_model.get_layer('block5_pool').output
-x = GlobalAveragePooling2D()(x)
-
-feature_extractor = Model(inputs=base_model.input, outputs=x)
-print("Modelo VGG16 carregado com Otimização (Global Pooling).")
-
-# --- Funções de Processamento ---
-
-def load_and_preprocess_images(image_paths):
-    images = []
-    for path in image_paths:
+# --- Utilitários ---
+def load_and_preprocess(paths):
+    images, valid = [], []
+    for path in paths:
         try:
-            img = Image.open(path).convert("RGB")
-            img = img.resize(TARGET_SIZE)
-            img_array = np.array(img)
-            img_array = np.expand_dims(img_array, axis=0)
-            img_array = preprocess_input(img_array)
-            images.append(img_array)
-        except Exception as e:
-            print(f"Falha ao processar imagem {path}: {e}")
-            continue
-    return np.vstack(images), image_paths
+            img = Image.open(path).convert("RGB").resize(TARGET_SIZE)
+            arr = img_to_array(img)
+            arr = np.expand_dims(arr, axis=0)
+            arr = preprocess_input(arr)
+            images.append(arr)
+            valid.append(path)
+        except: pass
+    if not images: return None, []
+    return np.vstack(images), valid
 
-def extract_features(preprocessed_images):
-    """
-    Extrai features e aplica NORMALIZAÇÃO L2.
-    Isso é crucial para diferenciar imagens com paletas de cores similares (Praia vs Deserto).
-    """
-    print("Iniciando extração de características...")
-    features = feature_extractor.predict(preprocessed_images)
-    features_flattened = features.reshape(features.shape[0], -1)
-    
-    # NORMALIZAÇÃO: Transforma os vetores para terem o mesmo "tamanho" matemático.
-    # Isso faz o K-Means funcionar baseando-se na direção (conteúdo) e não na intensidade.
-    return normalize(features_flattened, axis=1, norm='l2')
+def get_color_features(paths):
+    """Extrai histograma de cor para diferenciar ambientes (ex: fundo branco vs grama)"""
+    color_feats = []
+    for path in paths:
+        try:
+            img = Image.open(path).convert("RGB").resize((64, 64))
+            arr = np.array(img)
+            # Histograma 4x4x4 (64 dimensões)
+            hist, _ = np.histogramdd(arr.reshape(-1, 3), bins=(4, 4, 4), range=((0, 256), (0, 256), (0, 256)))
+            hist = hist.flatten() / (hist.sum() + 1e-6)
+            color_feats.append(hist)
+        except:
+            color_feats.append(np.zeros(64))
+    return np.array(color_feats)
 
-def get_features_for_single_image(image_file):
+def get_features_single(img_bytes):
     try:
-        img = Image.open(image_file).convert("RGB")
-        img = img.resize(TARGET_SIZE)
-        img_array = np.array(img)
-        img_array = np.expand_dims(img_array, axis=0)
-        img_array = preprocess_input(img_array)
+        # Pipeline para uma única imagem (Busca)
+        img = Image.open(img_bytes).convert("RGB")
         
-        features = feature_extractor.predict(img_array)
-        features_flattened = features.reshape(features.shape[0], -1)
+        # 1. Semântica
+        img_resized = img.resize(TARGET_SIZE)
+        arr = img_to_array(img_resized)
+        arr = np.expand_dims(arr, axis=0)
+        arr = preprocess_input(arr)
+        sem_feat = feature_extractor.predict(arr)
+        sem_feat = normalize(sem_feat, axis=1, norm='l2')
         
-        # Aplica a mesma normalização na busca!
-        features_normalized = normalize(features_flattened, axis=1, norm='l2')
+        # 2. Cor
+        img_small = img.resize((64, 64))
+        arr_small = np.array(img_small)
+        hist, _ = np.histogramdd(arr_small.reshape(-1, 3), bins=(4, 4, 4), range=((0, 256), (0, 256), (0, 256)))
+        col_feat = hist.flatten() / (hist.sum() + 1e-6)
+        col_feat = col_feat.reshape(1, -1)
+        # Aplica o mesmo peso reduzido
+        col_feat = normalize(col_feat, axis=1, norm='l2') * 0.25
         
-        return features_normalized[0].tolist()
-    except Exception as e:
-        print(f"Erro no processamento unitário: {e}")
-        return None
+        final_feat = np.hstack([sem_feat, col_feat])
+        return final_feat[0].tolist()
+    except: return None
 
-def cluster_features(features):
-    print(f"Executando K-Means com {NUM_CLUSTERS} clusters...")
-    kmeans = KMeans(n_clusters=NUM_CLUSTERS, random_state=42, n_init=10)
-    kmeans.fit(features)
-    return kmeans.labels_, kmeans.cluster_centers_
-
-def run_clustering():
-    all_image_paths = [os.path.join(IMAGE_DIR, f) for f in os.listdir(IMAGE_DIR) 
-                       if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+# --- Auto-K Dinâmico e Sensível ---
+def find_best_k(features, num_images):
+    if num_images < 2: return 1
+    if num_images <= 3: return num_images # Se tem 3 fotos, separa as 3 se precisar
     
-    if not all_image_paths:
-        return {}, {}
+    best_k = 2
+    best_score = -1
     
-    processed_images, valid_paths = load_and_preprocess_images(all_image_paths)
-    features = extract_features(processed_images)
-    labels, centers = cluster_features(features)
+    # AJUSTE: Permite mais grupos. 
+    # Antes o max era 5. Agora é metade das imagens ou 10 (o que for menor).
+    # Ex: Se mandar 20 fotos, ele pode criar até 10 grupos se forem muito diferentes.
+    max_k = min(10, num_images - 1)
     
-    clusters = {}
-    for i, path in enumerate(valid_paths):
-        cluster_label = f'cluster_{labels[i]}'
-        filename = os.path.basename(path)
+    # Loop de teste de agrupamento
+    for k in range(2, max_k + 1):
+        # n_init=30: Tenta 30 vezes achar os melhores centros (antes era 10)
+        kmeans = KMeans(n_clusters=k, random_state=42, n_init=30).fit(features)
+        labels = kmeans.labels_
         
-        if cluster_label not in clusters:
-            clusters[cluster_label] = []
-        clusters[cluster_label].append(filename)
+        # Penaliza grupos com 1 só item se tivermos muitas imagens (ruído)
+        # Mas permite se tivermos poucas imagens
+        unique, counts = np.unique(labels, return_counts=True)
+        if num_images > 6 and min(counts) < 2:
+            score_penalty = 0.1 # Penalidade leve
+        else:
+            score_penalty = 0.0
+            
+        if len(set(labels)) < 2: continue
+        
+        score = silhouette_score(features, labels) - score_penalty
+        
+        # AJUSTE: Prefere dividir mais (Over-clustering é melhor que misturar)
+        # Se o score do K maior for pelo menos 90% do score do K menor, prefere o maior.
+        if score > best_score or (score > best_score * 0.90 and k > best_k):
+            best_k = k
+            best_score = score
+            
+    print(f"Auto-K escolheu: {best_k} grupos (Score: {best_score:.3f})")
+    return best_k
 
-    data_result = {
-        "pastas_ordenadas": sorted(list(clusters.keys())),
-        "conteudo_ordenado": {k: sorted(v) for k, v in clusters.items()}
-    }
-
-    centroids_map = {}
-    for i in range(NUM_CLUSTERS):
-        cluster_name = f'cluster_{i}'
-        centroids_map[cluster_name] = centers[i].tolist()
+# --- Pipeline Principal ---
+def run_clustering_on_files(paths):
+    # 1. Carregamento
+    imgs, valid = load_and_preprocess(paths)
+    if imgs is None: return {}, {}
     
-    return data_result, centroids_map
+    # 2. Extração Semântica (PESO TOTAL)
+    print("Extraindo semântica (ResNet)...")
+    semantic_feats = feature_extractor.predict(imgs)
+    semantic_feats = normalize(semantic_feats, axis=1, norm='l2')
+    
+    # 3. Extração de Cor (PESO REDUZIDO)
+    # Baixamos de 0.6 para 0.25. 
+    # A cor agora só serve para desempatar (ex: gato preto vs gato branco).
+    # A forma (ResNet) domina a decisão.
+    print("Extraindo cores...")
+    color_feats = get_color_features(valid)
+    color_feats = normalize(color_feats, axis=1, norm='l2') * 0.25 
+    
+    # 4. Fusão
+    final_feats = np.hstack([semantic_feats, color_feats])
+    
+    # 5. Clusterização
+    k = find_best_k(final_feats, len(valid))
+    
+    kmeans = KMeans(n_clusters=k, random_state=42, n_init=30)
+    labels = kmeans.fit_predict(final_feats)
+    
+    # 6. Organização
+    clusters, centroids = {}, {}
+    temp = {i: [] for i in range(k)}
+    
+    for i, lbl in enumerate(labels):
+        temp[lbl].append(valid[i])
+        
+    group_counter = 1
+    for lbl, group_paths in temp.items():
+        if not group_paths: continue
+        
+        cluster_name = f"Grupo {group_counter}"
+        group_counter += 1
+            
+        clusters[cluster_name] = sorted([os.path.basename(p) for p in group_paths])
+        centroids[cluster_name] = kmeans.cluster_centers_[lbl].tolist()
+        
+    return {"pastas_ordenadas": sorted(clusters.keys()), "conteudo_ordenado": clusters}, centroids
