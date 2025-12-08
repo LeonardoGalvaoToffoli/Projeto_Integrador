@@ -63,7 +63,7 @@ Graças ao Docker, a instalação é padronizada e não requer configuração de
 
 1.  **Clone o repositório:**
     ```bash
-    git clone <URL_DO_SEU_GIT>
+    git clone https://github.com/LeonardoGalvaoToffoli/Projeto_Integrador.git
     cd Projeto_Integrador
     ```
 
